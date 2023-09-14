@@ -1,0 +1,144 @@
+---
+title: "Cross validation"
+author: "Gianni Enas"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Training exercises
+
+The project consists in predicting the the type of exercise performed with the data collected from many sensors fixed all over the moving parts of the bodies and is stored in a variable called "classe" in the training set of the database.
+
+Let's load the required libraries first:
+
+```{r library, echo=TRUE, message=FALSE}
+library(caret)
+library(gbm)
+library(randomForest)
+library(tidyverse)
+```
+
+And also the test and training set:
+
+```{r pml_training, message=FALSE}
+pml_training <- read.csv("pml-training.csv")
+pml_testing <- read.csv("pml-testing.csv")
+```
+
+The dataset contains many variables, many of which are not significant, I will remove some of them that have no evident meaning and then use some caret functions to clean the data getting rid of variables with zero variance ,n/a, or high correlated. First let's remove the user_names, the windows variables and the data variables, then the zero variance and the N/A values
+
+```{r remove}
+training <- pml_training[, -c(1,2,3,4,5,6,7)]
+testing <- pml_testing[, -c(1,2,3,4,5,6,7)]
+zero_values <- nearZeroVar(training)
+training <- training[, - zero_values]
+testing <- testing[, -zero_values]
+training <- training[, colSums(is.na(training)) == 0]
+testing <- testing[, colSums(is.na(testing)) == 0]
+rm(pml_training, pml_testing)
+```
+
+Let's now get rid of the variables with correlation \> 0.8
+
+```{r corr}
+training$classe = as.factor(training$classe)
+correlated <- findCorrelation(cor(training[,1:52]), cutoff = 0.8)
+training <- training[,-correlated]
+testing <- testing[,-correlated]
+
+
+```
+
+## Plotting the data
+
+Let's do some plotting with the remaining variables to check their values.
+
+```{r plots, echo=FALSE}
+
+longer_data <- training %>%
+pivot_longer("yaw_belt":"pitch_arm", names_to = "question", values_to = "response")
+type <- as.factor(longer_data$classe)
+g = ggplot(longer_data, aes(y = question, x = response , fill = type)) +
+geom_boxplot() +
+labs(x = "Value", y = "Variables ")
+g
+
+longer_data_1 <- training %>%
+pivot_longer("yaw_arm": "pitch_dumbbell", names_to = "question", values_to = "response")
+type <- as.factor(longer_data_1$classe)
+p = ggplot(longer_data_1, aes(y = question, x = response , fill = type)) +
+geom_boxplot() +
+labs(x = "Value", y = "Variables ")
+p
+
+longer_data_2 <- training %>%
+pivot_longer("yaw_dumbbell": "pitch_forearm", names_to = "question", values_to = "response")
+type <- as.factor(longer_data_2$classe)
+q = ggplot(longer_data_2, aes(y = question, x = response , fill = type)) +
+geom_boxplot() +
+labs(x = "Value", y = "Variables ")
+q
+
+longer_data_3 <- training %>%
+pivot_longer("yaw_forearm": "magnet_forearm_z", names_to = "question", values_to = "response")
+type <- as.factor(longer_data_3$classe)
+h = ggplot(longer_data_3, aes(y = question, x = response , fill = type)) +
+geom_boxplot() +
+labs(x = "Value", y = "Variables ")
+h
+
+```
+
+As we can deduce from the plots there are few variables which values are zero or close to zero and by my assessment they are not significant therefore is better to remove them and shrink the data further.
+
+```{r cleaning}
+training <- subset(training, select = -c(gyros_belt_x, gyros_belt_y, gyros_belt_z, gyros_arm_z, gyros_arm_y, total_accel_dumbbell, gyros_dumbbell_y, gyros_forearm_z, gyros_forearm_x ))
+testing <- subset(testing, select = -c(gyros_belt_x, gyros_belt_y, gyros_belt_z, gyros_arm_z, gyros_arm_y, total_accel_dumbbell, gyros_dumbbell_y, gyros_forearm_z, gyros_forearm_x ))
+
+```
+
+Let's fit now two different models to compare and do cross validation
+
+```{r fitting}
+training$classe = as.factor(training$classe)
+testing = testing[,-31]
+control <- trainControl(method = "cv", number = 5)
+
+fitgbm <- train(classe~., data = training, method = "gbm", trControl = control, verbose = FALSE)
+fitrf <- train(classe~., data = training, method = "rf", trControl = control)
+
+fitgbm
+fitrf
+
+confusionMatrix(fitgbm)
+confusionMatrix(fitrf)
+
+
+```
+
+As we see from the confusion metric and accuracy the result is quite good, let's try to predict on the testing set to test the models.
+
+```{r predict}
+pred_gbm <- predict(fitgbm, testing)
+pred_rf <- predict(fitrf, testing)
+pred_gbm
+pred_rf
+```
+
+The prediction is the same for both models this is encouraging.
+
+Let's plot the models now to visually see the accuracy
+
+```{r plot_fit}
+ggplot(fitgbm)
+ggplot(fitrf)
+
+```
+
+I think we can be satisfied by the visual result of these plots being the accuracy quite good, both predictions leads to the same results and this is encouraging. I think my work is finished with this, I just couldn't train more models because of the limits of my RAM, but I'm quite confident about the outcome.
